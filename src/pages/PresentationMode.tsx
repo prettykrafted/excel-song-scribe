@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { X, ChevronLeft, ChevronRight, Settings } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Settings, Maximize, Minimize } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Hymn } from '@/types/hymn';
 import {
@@ -13,17 +13,65 @@ import {
 } from "@/components/ui/sheet";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
+
+const STORAGE_KEY = 'presentation-settings';
+
+interface PresentationSettings {
+  backgroundColor: string;
+  textColor: string;
+  baseFontSize: number;
+  isBold: boolean;
+  showStanzaLabel: boolean;
+  showSongTitle: boolean;
+}
+
+const defaultSettings: PresentationSettings = {
+  backgroundColor: '#1a2332',
+  textColor: '#f5f1e8',
+  baseFontSize: 50,
+  isBold: false,
+  showStanzaLabel: true,
+  showSongTitle: true,
+};
 
 const PresentationMode = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const hymn = location.state?.hymn as Hymn;
+  const contentRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [backgroundColor, setBackgroundColor] = useState('#1a2332');
-  const [textColor, setTextColor] = useState('#f5f1e8');
-  const [baseFontSize, setBaseFontSize] = useState(48);
-  const [adaptiveFontSize, setAdaptiveFontSize] = useState(48);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [adaptiveFontSize, setAdaptiveFontSize] = useState(50);
+  
+  // Load settings from localStorage
+  const loadSettings = (): PresentationSettings => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        return { ...defaultSettings, ...JSON.parse(saved) };
+      }
+    } catch (error) {
+      console.error('Failed to load settings:', error);
+    }
+    return defaultSettings;
+  };
+
+  const [settings, setSettings] = useState<PresentationSettings>(loadSettings());
+  const { backgroundColor, textColor, baseFontSize, isBold, showStanzaLabel, showSongTitle } = settings;
+
+  // Save settings to localStorage
+  const updateSettings = (newSettings: Partial<PresentationSettings>) => {
+    const updated = { ...settings, ...newSettings };
+    setSettings(updated);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    } catch (error) {
+      console.error('Failed to save settings:', error);
+    }
+  };
 
   // Build slides array: stanza -> chorus pattern
   const slides = hymn?.stanzas.flatMap((stanza, idx) => {
@@ -36,26 +84,52 @@ const PresentationMode = () => {
 
   const currentSlide = slides[currentIndex];
 
-  // Adaptive font sizing based on content length
+  // Dynamic font sizing to fit screen
   useEffect(() => {
-    if (!currentSlide) return;
+    if (!currentSlide || !contentRef.current || !containerRef.current) return;
     
-    const contentLength = currentSlide.content.length;
-    const lineCount = currentSlide.content.split('\n').length;
-    
-    let calculated = baseFontSize;
-    
-    // Adjust for content length
-    if (contentLength > 400) calculated *= 0.7;
-    else if (contentLength > 300) calculated *= 0.8;
-    else if (contentLength > 200) calculated *= 0.9;
-    
-    // Adjust for line count
-    if (lineCount > 8) calculated *= 0.85;
-    else if (lineCount > 6) calculated *= 0.95;
-    
-    setAdaptiveFontSize(Math.max(24, Math.min(calculated, 72)));
-  }, [currentSlide, baseFontSize]);
+    const adjustFontSize = () => {
+      const container = containerRef.current;
+      const content = contentRef.current;
+      if (!container || !content) return;
+
+      const containerWidth = container.clientWidth;
+      const containerHeight = container.clientHeight;
+      const contentLength = currentSlide.content.length;
+      const lineCount = currentSlide.content.split('\n').length;
+      
+      let calculatedSize = baseFontSize;
+      
+      // Adjust for content length
+      if (contentLength > 400) calculatedSize *= 0.65;
+      else if (contentLength > 300) calculatedSize *= 0.75;
+      else if (contentLength > 200) calculatedSize *= 0.85;
+      
+      // Adjust for line count
+      if (lineCount > 10) calculatedSize *= 0.7;
+      else if (lineCount > 8) calculatedSize *= 0.8;
+      else if (lineCount > 6) calculatedSize *= 0.9;
+      
+      // Fit to container height
+      const estimatedHeight = lineCount * calculatedSize * 1.5;
+      if (estimatedHeight > containerHeight * 0.8) {
+        calculatedSize = (containerHeight * 0.8) / (lineCount * 1.5);
+      }
+      
+      // Fit to container width (rough estimate)
+      const avgLineLength = contentLength / lineCount;
+      const estimatedWidth = avgLineLength * calculatedSize * 0.6;
+      if (estimatedWidth > containerWidth * 0.9) {
+        calculatedSize = (containerWidth * 0.9) / (avgLineLength * 0.6);
+      }
+      
+      setAdaptiveFontSize(Math.max(20, Math.min(calculatedSize, 100)));
+    };
+
+    adjustFontSize();
+    window.addEventListener('resize', adjustFontSize);
+    return () => window.removeEventListener('resize', adjustFontSize);
+  }, [currentSlide, baseFontSize, isFullscreen]);
 
   const handleNext = useCallback(() => {
     if (currentIndex < slides.length - 1) {
@@ -69,6 +143,31 @@ const PresentationMode = () => {
     }
   }, [currentIndex]);
 
+  // Fullscreen management
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+        setIsFullscreen(true);
+      } else {
+        await document.exitFullscreen();
+        setIsFullscreen(false);
+      }
+    } catch (error) {
+      console.error('Fullscreen error:', error);
+    }
+  }, []);
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
@@ -79,13 +178,19 @@ const PresentationMode = () => {
         e.preventDefault();
         handlePrevious();
       } else if (e.key === 'Escape') {
-        navigate(-1);
+        if (document.fullscreenElement) {
+          document.exitFullscreen();
+        } else {
+          navigate(-1);
+        }
+      } else if (e.key === 'f' || e.key === 'F') {
+        toggleFullscreen();
       }
     };
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [handleNext, handlePrevious, navigate]);
+  }, [handleNext, handlePrevious, navigate, toggleFullscreen]);
 
   if (!hymn || !currentSlide) {
     return (
@@ -105,6 +210,15 @@ const PresentationMode = () => {
     >
       {/* Top controls */}
       <div className="absolute top-4 right-4 z-10 flex gap-2">
+        <Button 
+          variant="secondary" 
+          size="icon"
+          onClick={toggleFullscreen}
+          title={isFullscreen ? "Exit Fullscreen (F)" : "Enter Fullscreen (F)"}
+        >
+          {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+        </Button>
+
         <Sheet>
           <SheetTrigger asChild>
             <Button variant="secondary" size="icon">
@@ -126,13 +240,13 @@ const PresentationMode = () => {
                     id="bg-color"
                     type="color"
                     value={backgroundColor}
-                    onChange={(e) => setBackgroundColor(e.target.value)}
+                    onChange={(e) => updateSettings({ backgroundColor: e.target.value })}
                     className="w-20 h-10"
                   />
                   <Input
                     type="text"
                     value={backgroundColor}
-                    onChange={(e) => setBackgroundColor(e.target.value)}
+                    onChange={(e) => updateSettings({ backgroundColor: e.target.value })}
                     className="flex-1"
                   />
                 </div>
@@ -144,13 +258,13 @@ const PresentationMode = () => {
                     id="text-color"
                     type="color"
                     value={textColor}
-                    onChange={(e) => setTextColor(e.target.value)}
+                    onChange={(e) => updateSettings({ textColor: e.target.value })}
                     className="w-20 h-10"
                   />
                   <Input
                     type="text"
                     value={textColor}
-                    onChange={(e) => setTextColor(e.target.value)}
+                    onChange={(e) => updateSettings({ textColor: e.target.value })}
                     className="flex-1"
                   />
                 </div>
@@ -163,8 +277,32 @@ const PresentationMode = () => {
                   min="24"
                   max="96"
                   value={baseFontSize}
-                  onChange={(e) => setBaseFontSize(Number(e.target.value))}
+                  onChange={(e) => updateSettings({ baseFontSize: Number(e.target.value) })}
                   className="mt-2"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="bold-text">Bold Text</Label>
+                <Switch
+                  id="bold-text"
+                  checked={isBold}
+                  onCheckedChange={(checked) => updateSettings({ isBold: checked })}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="show-stanza">Show Stanza Label</Label>
+                <Switch
+                  id="show-stanza"
+                  checked={showStanzaLabel}
+                  onCheckedChange={(checked) => updateSettings({ showStanzaLabel: checked })}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="show-title">Show Song Title</Label>
+                <Switch
+                  id="show-title"
+                  checked={showSongTitle}
+                  onCheckedChange={(checked) => updateSettings({ showSongTitle: checked })}
                 />
               </div>
             </div>
@@ -181,24 +319,27 @@ const PresentationMode = () => {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 flex items-center justify-center p-12">
-        <div className="max-w-5xl w-full text-center">
-          <div className="mb-8">
-            <h2 
-              className="font-bold mb-2"
-              style={{ fontSize: `${Math.min(adaptiveFontSize * 0.6, 36)}px` }}
-            >
-              {currentSlide.type === 'stanza' && currentSlide.number
-                ? `Stanza ${currentSlide.number}` 
-                : 'Chorus'}
-            </h2>
-          </div>
+      <div ref={containerRef} className="flex-1 flex items-center justify-center p-12">
+        <div ref={contentRef} className="max-w-5xl w-full text-center">
+          {showStanzaLabel && (
+            <div className="mb-8">
+              <h2 
+                className="font-bold mb-2"
+                style={{ fontSize: `${Math.min(adaptiveFontSize * 0.6, 36)}px` }}
+              >
+                {currentSlide.type === 'stanza' && currentSlide.number
+                  ? `Stanza ${currentSlide.number}` 
+                  : 'Chorus'}
+              </h2>
+            </div>
+          )}
           
           <p 
             className="whitespace-pre-wrap leading-relaxed"
             style={{ 
               fontSize: `${adaptiveFontSize}px`,
-              fontStyle: currentSlide.type === 'chorus' ? 'italic' : 'normal'
+              fontStyle: currentSlide.type === 'chorus' ? 'italic' : 'normal',
+              fontWeight: isBold ? 'bold' : 'normal'
             }}
           >
             {currentSlide.content}
@@ -218,12 +359,22 @@ const PresentationMode = () => {
           Previous
         </Button>
 
-        <div className="text-center">
-          <p className="font-semibold text-lg">{hymn.globalName}</p>
-          <p className="text-sm opacity-70">
-            {currentIndex + 1} / {slides.length}
-          </p>
-        </div>
+        {showSongTitle && (
+          <div className="text-center">
+            <p className="font-semibold text-lg">{hymn.globalName}</p>
+            <p className="text-sm opacity-70">
+              {currentIndex + 1} / {slides.length}
+            </p>
+          </div>
+        )}
+
+        {!showSongTitle && (
+          <div className="text-center">
+            <p className="text-sm opacity-70">
+              {currentIndex + 1} / {slides.length}
+            </p>
+          </div>
+        )}
 
         <Button
           variant="secondary"
