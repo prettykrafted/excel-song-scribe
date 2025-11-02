@@ -4,10 +4,13 @@ import { Hymn, Songbook } from '@/types/hymn';
 export const parseStanzas = (stanzaText: string): string[] => {
   if (!stanzaText) return [];
   
-  // Split by multiple line breaks (which appear as <br/><br/><br/> in the parsed data)
-  const stanzas = stanzaText
-    .split(/<br\/><br\/><br\/>|<br\/>\s*<br\/>\s*<br\/>/)
-    .map(s => s.replace(/<br\/>/g, '\n').trim())
+  // First replace all <br/> with newlines
+  const normalized = stanzaText.replace(/<br\s*\/?>/gi, '\n');
+  
+  // Split by double newlines (empty lines between paragraphs)
+  const stanzas = normalized
+    .split(/\n\s*\n+/)
+    .map(s => s.trim())
     .filter(s => s.length > 0);
   
   return stanzas;
