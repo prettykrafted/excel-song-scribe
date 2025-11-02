@@ -38,12 +38,48 @@ const Home = () => {
     if (!file) return;
 
     try {
-      const songbook = await readExcelFile(file);
-      setSongbooks([...songbooks, songbook]);
-      toast({
-        title: 'Success',
-        description: 'Songbook loaded successfully',
-      });
+      const newSongbook = await readExcelFile(file);
+      
+      // Check if songbook already exists
+      const existingIndex = songbooks.findIndex(sb => sb.id === newSongbook.id);
+      
+      if (existingIndex >= 0) {
+        // Merge hymns: update existing songs, add new ones
+        const existingSongbook = songbooks[existingIndex];
+        const mergedHymns = [...existingSongbook.hymns];
+        let updatedCount = 0;
+        let addedCount = 0;
+        
+        newSongbook.hymns.forEach(newHymn => {
+          const existingHymnIndex = mergedHymns.findIndex(h => h.songNumber === newHymn.songNumber);
+          if (existingHymnIndex >= 0) {
+            mergedHymns[existingHymnIndex] = newHymn;
+            updatedCount++;
+          } else {
+            mergedHymns.push(newHymn);
+            addedCount++;
+          }
+        });
+        
+        const updatedSongbooks = [...songbooks];
+        updatedSongbooks[existingIndex] = {
+          ...existingSongbook,
+          hymns: mergedHymns.sort((a, b) => a.songNumber - b.songNumber),
+        };
+        
+        setSongbooks(updatedSongbooks);
+        toast({
+          title: 'Songbook updated',
+          description: `Updated ${updatedCount} song(s), added ${addedCount} new song(s).`,
+        });
+      } else {
+        // Add as new songbook
+        setSongbooks([...songbooks, newSongbook]);
+        toast({
+          title: 'Success',
+          description: 'Songbook loaded successfully',
+        });
+      }
     } catch (error) {
       console.error('Error reading file:', error);
       toast({
