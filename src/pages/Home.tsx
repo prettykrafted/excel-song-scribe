@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Music2, Upload, Trash2 } from 'lucide-react';
+import { Music2, Upload, Trash2, BookOpen } from 'lucide-react';
 import SongbookCard from '@/components/SongbookCard';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card } from '@/components/ui/card';
 import { Songbook } from '@/types/hymn';
+import { BibleCollection } from '@/types/bible';
 import { readExcelFileAllSheets, loadDefaultSongbooks } from '@/utils/excelUtils';
+import { readBibleExcelFile, loadDefaultBible } from '@/utils/bibleUtils';
 import { useToast } from '@/hooks/use-toast';
 import {
   AlertDialog,
@@ -17,55 +21,78 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-const STORAGE_KEY = 'songbooks-collection';
+const SONGBOOKS_STORAGE_KEY = 'songbooks-collection';
+const BIBLE_STORAGE_KEY = 'bible-collection';
 
 const Home = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [songbooks, setSongbooks] = useState<Songbook[]>([]);
+  const [bibleCollections, setBibleCollections] = useState<BibleCollection[]>([]);
   const [loading, setLoading] = useState(true);
-  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; songbookId: string | null }>({
+  const [activeTab, setActiveTab] = useState<'songbooks' | 'bible'>('songbooks');
+  const [deleteDialog, setDeleteDialog] = useState<{ 
+    open: boolean; 
+    id: string | null;
+    type: 'songbook' | 'bible' | null;
+  }>({
     open: false,
-    songbookId: null,
+    id: null,
+    type: null,
   });
 
   useEffect(() => {
-    loadSongbooks();
+    loadAllData();
   }, []);
 
-  // Load songbooks from localStorage
+  const loadAllData = async () => {
+    await Promise.all([loadSongbooks(), loadBibleCollections()]);
+    setLoading(false);
+  };
+
   const loadSongbooks = async () => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(SONGBOOKS_STORAGE_KEY);
       if (saved) {
-        const parsed = JSON.parse(saved);
-        setSongbooks(parsed);
+        setSongbooks(JSON.parse(saved));
       } else {
-        // Try to load default songbooks from public folder
         try {
           const defaultSongbooks = await loadDefaultSongbooks();
           if (defaultSongbooks.length > 0) {
             saveSongbooks(defaultSongbooks);
-          } else {
-            setSongbooks([]);
           }
         } catch (error) {
-          console.log('No default songbooks found, starting with empty collection');
-          setSongbooks([]);
+          console.log('No default songbooks found');
         }
       }
     } catch (error) {
       console.error('Error loading songbooks:', error);
-      setSongbooks([]);
-    } finally {
-      setLoading(false);
     }
   };
 
-  // Save songbooks to localStorage
+  const loadBibleCollections = async () => {
+    try {
+      const saved = localStorage.getItem(BIBLE_STORAGE_KEY);
+      if (saved) {
+        setBibleCollections(JSON.parse(saved));
+      } else {
+        try {
+          const defaultBible = await loadDefaultBible();
+          if (defaultBible.length > 0) {
+            saveBibleCollections(defaultBible);
+          }
+        } catch (error) {
+          console.log('No default Bible found');
+        }
+      }
+    } catch (error) {
+      console.error('Error loading Bible:', error);
+    }
+  };
+
   const saveSongbooks = (books: Songbook[]) => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(books));
+      localStorage.setItem(SONGBOOKS_STORAGE_KEY, JSON.stringify(books));
       setSongbooks(books);
     } catch (error) {
       console.error('Error saving songbooks:', error);
@@ -77,7 +104,21 @@ const Home = () => {
     }
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const saveBibleCollections = (collections: BibleCollection[]) => {
+    try {
+      localStorage.setItem(BIBLE_STORAGE_KEY, JSON.stringify(collections));
+      setBibleCollections(collections);
+    } catch (error) {
+      console.error('Error saving Bible collections:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to save Bible collections',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleSongbookUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -139,22 +180,67 @@ const Home = () => {
     }
   };
 
-  const handleDeleteSongbook = (songbookId: string) => {
-    setDeleteDialog({ open: true, songbookId });
+  const handleBibleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const newCollections = await readBibleExcelFile(file);
+      
+      if (newCollections.length === 0) {
+        toast({
+          title: 'No sheets found',
+          description: 'The Excel file contains no valid Bible data.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const updatedCollections = [...bibleCollections, ...newCollections];
+      saveBibleCollections(updatedCollections);
+      
+      toast({
+        title: 'Success',
+        description: `Added ${newCollections.length} Bible collection(s) successfully.`,
+      });
+      
+      event.target.value = '';
+    } catch (error) {
+      console.error('Error reading Bible file:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to read Excel file. Please check the file format.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDelete = (id: string, type: 'songbook' | 'bible') => {
+    setDeleteDialog({ open: true, id, type });
   };
 
   const confirmDelete = () => {
-    if (deleteDialog.songbookId) {
-      const updatedSongbooks = songbooks.filter(sb => sb.id !== deleteDialog.songbookId);
-      saveSongbooks(updatedSongbooks);
-      
-      const deletedBook = songbooks.find(sb => sb.id === deleteDialog.songbookId);
+    if (!deleteDialog.id || !deleteDialog.type) return;
+
+    if (deleteDialog.type === 'songbook') {
+      const updated = songbooks.filter(sb => sb.id !== deleteDialog.id);
+      saveSongbooks(updated);
+      const deleted = songbooks.find(sb => sb.id === deleteDialog.id);
       toast({
         title: 'Songbook deleted',
-        description: `"${deletedBook?.title}" has been removed.`,
+        description: `"${deleted?.title}" has been removed.`,
+      });
+    } else {
+      const updated = bibleCollections.filter(bc => bc.id !== deleteDialog.id);
+      saveBibleCollections(updated);
+      const deleted = bibleCollections.find(bc => bc.id === deleteDialog.id);
+      toast({
+        title: 'Bible collection deleted',
+        description: `"${deleted?.title}" has been removed.`,
       });
     }
-    setDeleteDialog({ open: false, songbookId: null });
+    
+    setDeleteDialog({ open: false, id: null, type: null });
   };
 
   if (loading) {
@@ -173,61 +259,132 @@ const Home = () => {
       <div className="container mx-auto px-4 py-12 max-w-6xl">
         <header className="text-center mb-12">
           <div className="flex items-center justify-center gap-3 mb-4">
-            <Music2 className="h-12 w-12 text-primary" />
-            <h1 className="text-5xl font-bold text-foreground">Hymnal Collection</h1>
+            <BookOpen className="h-12 w-12 text-primary" />
+            <h1 className="text-5xl font-bold text-foreground">Sacred Library</h1>
           </div>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            A treasury of sacred songs and hymns for worship and praise
+            Your collection of hymns and scripture for worship and study
           </p>
         </header>
 
-        <div className="mb-8 flex justify-center">
-          <Button variant="outline" className="relative overflow-hidden">
-            <Upload className="mr-2 h-4 w-4" />
-            Upload Songbook
-            <input
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={handleFileUpload}
-              className="absolute inset-0 opacity-0 cursor-pointer"
-            />
-          </Button>
-        </div>
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'songbooks' | 'bible')} className="w-full">
+          <TabsList className="grid w-full max-w-md mx-auto grid-cols-2 mb-8">
+            <TabsTrigger value="songbooks" className="flex items-center gap-2">
+              <Music2 className="h-4 w-4" />
+              Songbooks
+            </TabsTrigger>
+            <TabsTrigger value="bible" className="flex items-center gap-2">
+              <BookOpen className="h-4 w-4" />
+              Bible
+            </TabsTrigger>
+          </TabsList>
 
-        {songbooks.length === 0 ? (
-          <div className="text-center py-16">
-            <Music2 className="h-24 w-24 text-muted-foreground/30 mx-auto mb-4" />
-            <h2 className="text-2xl font-semibold mb-2 text-foreground">No songbooks yet</h2>
-            <p className="text-muted-foreground mb-6">
-              Upload your first songbook to get started
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Tip: All sheets in your Excel file will be imported as separate songbooks, even empty ones
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
-            {songbooks.map((songbook) => (
-              <div key={songbook.id} className="relative group">
-                <SongbookCard
-                  songbook={songbook}
-                  onClick={() => navigate(`/songbook/${songbook.id}`, { state: { songbook } })}
+          <TabsContent value="songbooks" className="space-y-8">
+            <div className="flex justify-center">
+              <Button variant="outline" className="relative overflow-hidden">
+                <Upload className="mr-2 h-4 w-4" />
+                Upload Songbook
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={handleSongbookUpload}
+                  className="absolute inset-0 opacity-0 cursor-pointer"
                 />
-                <Button
-                  variant="destructive"
-                  size="icon"
-                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeleteSongbook(songbook.id);
-                  }}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+              </Button>
+            </div>
+
+            {songbooks.length === 0 ? (
+              <div className="text-center py-16">
+                <Music2 className="h-24 w-24 text-muted-foreground/30 mx-auto mb-4" />
+                <h2 className="text-2xl font-semibold mb-2 text-foreground">No songbooks yet</h2>
+                <p className="text-muted-foreground mb-6">
+                  Upload your first songbook to get started
+                </p>
               </div>
-            ))}
-          </div>
-        )}
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {songbooks.map((songbook) => (
+                  <div key={songbook.id} className="relative group">
+                    <SongbookCard
+                      songbook={songbook}
+                      onClick={() => navigate(`/songbook/${songbook.id}`, { state: { songbook } })}
+                    />
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(songbook.id, 'songbook');
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="bible" className="space-y-8">
+            <div className="flex justify-center">
+              <Button variant="outline" className="relative overflow-hidden">
+                <Upload className="mr-2 h-4 w-4" />
+                Upload Bible
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={handleBibleUpload}
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                />
+              </Button>
+            </div>
+
+            {bibleCollections.length === 0 ? (
+              <div className="text-center py-16">
+                <BookOpen className="h-24 w-24 text-muted-foreground/30 mx-auto mb-4" />
+                <h2 className="text-2xl font-semibold mb-2 text-foreground">No Bible collections yet</h2>
+                <p className="text-muted-foreground mb-6">
+                  Upload your first Bible collection to get started
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {bibleCollections.map((collection) => (
+                  <div key={collection.id} className="relative group">
+                    <Card 
+                      className="p-6 hover:shadow-xl transition-all duration-300 cursor-pointer border-2 hover:border-primary"
+                      onClick={() => navigate(`/bible/${collection.id}`, { state: { collection } })}
+                    >
+                      <div className="flex items-start gap-4">
+                        <BookOpen className="h-8 w-8 text-primary flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-xl font-bold text-foreground mb-2 truncate">
+                            {collection.title}
+                          </h3>
+                          <p className="text-muted-foreground">
+                            {collection.books.length} book{collection.books.length !== 1 ? 's' : ''}
+                          </p>
+                        </div>
+                      </div>
+                    </Card>
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(collection.id, 'bible');
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
 
         <div className="mt-16 bg-card rounded-2xl p-8 shadow-lg border-2 border-border">
           <blockquote className="text-center">
@@ -242,13 +399,12 @@ const Home = () => {
         </div>
       </div>
 
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={deleteDialog.open} onOpenChange={(open) => setDeleteDialog({ open, songbookId: null })}>
+      <AlertDialog open={deleteDialog.open} onOpenChange={(open) => setDeleteDialog({ open, id: null, type: null })}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Songbook?</AlertDialogTitle>
+            <AlertDialogTitle>Delete {deleteDialog.type === 'bible' ? 'Bible Collection' : 'Songbook'}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this songbook? This action cannot be undone.
+              Are you sure you want to delete this {deleteDialog.type === 'bible' ? 'Bible collection' : 'songbook'}? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

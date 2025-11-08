@@ -8,6 +8,9 @@ import SongbookView from "./pages/SongbookView";
 import SongView from "./pages/SongView";
 import PresentationMode from "./pages/PresentationMode";
 import EditSong from "./pages/EditSong";
+import BibleView from "./pages/BibleView";
+import BibleBookView from "./pages/BibleBookView";
+import BibleChapterView from "./pages/BibleChapterView";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -25,6 +28,9 @@ const App = () => (
           <Route path="/song/:number" element={<SongView />} />
           <Route path="/song/:number/edit" element={<EditSong />} />
           <Route path="/presentation" element={<PresentationMode />} />
+          <Route path="/bible/:id" element={<BibleView />} />
+          <Route path="/bible/:id/book/:bookName" element={<BibleBookView />} />
+          <Route path="/bible/:id/book/:bookName/chapter/:chapter" element={<BibleChapterView />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
