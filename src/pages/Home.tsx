@@ -42,13 +42,17 @@ const Home = () => {
   });
 
   useEffect(() => {
+    const loadAllData = async () => {
+      try {
+        await Promise.all([loadSongbooks(), loadBibleCollections()]);
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
     loadAllData();
   }, []);
-
-  const loadAllData = async () => {
-    await Promise.all([loadSongbooks(), loadBibleCollections()]);
-    setLoading(false);
-  };
 
   const loadSongbooks = async () => {
     try {
