@@ -106,3 +106,12 @@ export const loadDefaultBible = async (): Promise<BibleCollection[]> => {
   const file = new File([blob], 'kjv_bible.xlsx');
   return readBibleExcelFile(file);
 };
+
+export const loadBibleById = async (id: string): Promise<BibleCollection | null> => {
+  // For now, we only support the default KJV Bible
+  if (id.startsWith('bible-')) {
+    const collections = await loadDefaultBible();
+    return collections.find(c => c.id === id) || null;
+  }
+  return null;
+};

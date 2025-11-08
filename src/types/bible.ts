@@ -16,6 +16,12 @@ export interface BibleCollection {
   books: BibleBook[];
 }
 
+export interface BibleMetadata {
+  id: string;
+  title: string;
+  bookCount: number;
+}
+
 export type ContentType = 'bible' | 'songbook';
 
 export interface Collection {

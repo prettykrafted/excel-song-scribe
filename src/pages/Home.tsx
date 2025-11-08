@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card } from '@/components/ui/card';
 import { Songbook } from '@/types/hymn';
-import { BibleCollection } from '@/types/bible';
+import { BibleMetadata } from '@/types/bible';
 import { readExcelFileAllSheets, loadDefaultSongbooks } from '@/utils/excelUtils';
 import { readBibleExcelFile, loadDefaultBible } from '@/utils/bibleUtils';
 import { useToast } from '@/hooks/use-toast';
@@ -28,7 +28,7 @@ const Home = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [songbooks, setSongbooks] = useState<Songbook[]>([]);
-  const [bibleCollections, setBibleCollections] = useState<BibleCollection[]>([]);
+  const [bibleMetadata, setBibleMetadata] = useState<BibleMetadata[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'songbooks' | 'bible'>('songbooks');
   const [deleteDialog, setDeleteDialog] = useState<{ 
@@ -78,12 +78,18 @@ const Home = () => {
     try {
       const saved = localStorage.getItem(BIBLE_STORAGE_KEY);
       if (saved) {
-        setBibleCollections(JSON.parse(saved));
+        setBibleMetadata(JSON.parse(saved));
       } else {
         try {
           const defaultBible = await loadDefaultBible();
           if (defaultBible.length > 0) {
-            saveBibleCollections(defaultBible);
+            // Store only metadata, not full content
+            const metadata: BibleMetadata[] = defaultBible.map(bible => ({
+              id: bible.id,
+              title: bible.title,
+              bookCount: bible.books.length
+            }));
+            saveBibleMetadata(metadata);
           }
         } catch (error) {
           console.log('No default Bible found');
@@ -108,15 +114,15 @@ const Home = () => {
     }
   };
 
-  const saveBibleCollections = (collections: BibleCollection[]) => {
+  const saveBibleMetadata = (metadata: BibleMetadata[]) => {
     try {
-      localStorage.setItem(BIBLE_STORAGE_KEY, JSON.stringify(collections));
-      setBibleCollections(collections);
+      localStorage.setItem(BIBLE_STORAGE_KEY, JSON.stringify(metadata));
+      setBibleMetadata(metadata);
     } catch (error) {
-      console.error('Error saving Bible collections:', error);
+      console.error('Error saving Bible metadata:', error);
       toast({
         title: 'Error',
-        description: 'Failed to save Bible collections',
+        description: 'Failed to save Bible metadata',
         variant: 'destructive',
       });
     }
@@ -200,8 +206,15 @@ const Home = () => {
         return;
       }
 
-      const updatedCollections = [...bibleCollections, ...newCollections];
-      saveBibleCollections(updatedCollections);
+      // Store only metadata
+      const newMetadata: BibleMetadata[] = newCollections.map(bible => ({
+        id: bible.id,
+        title: bible.title,
+        bookCount: bible.books.length
+      }));
+      
+      const updatedMetadata = [...bibleMetadata, ...newMetadata];
+      saveBibleMetadata(updatedMetadata);
       
       toast({
         title: 'Success',
@@ -235,9 +248,9 @@ const Home = () => {
         description: `"${deleted?.title}" has been removed.`,
       });
     } else {
-      const updated = bibleCollections.filter(bc => bc.id !== deleteDialog.id);
-      saveBibleCollections(updated);
-      const deleted = bibleCollections.find(bc => bc.id === deleteDialog.id);
+      const updated = bibleMetadata.filter(bc => bc.id !== deleteDialog.id);
+      saveBibleMetadata(updated);
+      const deleted = bibleMetadata.find(bc => bc.id === deleteDialog.id);
       toast({
         title: 'Bible collection deleted',
         description: `"${deleted?.title}" has been removed.`,
@@ -344,7 +357,7 @@ const Home = () => {
               </Button>
             </div>
 
-            {bibleCollections.length === 0 ? (
+            {bibleMetadata.length === 0 ? (
               <div className="text-center py-16">
                 <BookOpen className="h-24 w-24 text-muted-foreground/30 mx-auto mb-4" />
                 <h2 className="text-2xl font-semibold mb-2 text-foreground">No Bible collections yet</h2>
@@ -354,20 +367,20 @@ const Home = () => {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {bibleCollections.map((collection) => (
-                  <div key={collection.id} className="relative group">
+                {bibleMetadata.map((metadata) => (
+                  <div key={metadata.id} className="relative group">
                     <Card 
                       className="p-6 hover:shadow-xl transition-all duration-300 cursor-pointer border-2 hover:border-primary"
-                      onClick={() => navigate(`/bible/${collection.id}`, { state: { collection } })}
+                      onClick={() => navigate(`/bible/${metadata.id}`)}
                     >
                       <div className="flex items-start gap-4">
                         <BookOpen className="h-8 w-8 text-primary flex-shrink-0" />
                         <div className="flex-1 min-w-0">
                           <h3 className="text-xl font-bold text-foreground mb-2 truncate">
-                            {collection.title}
+                            {metadata.title}
                           </h3>
                           <p className="text-muted-foreground">
-                            {collection.books.length} book{collection.books.length !== 1 ? 's' : ''}
+                            {metadata.bookCount} book{metadata.bookCount !== 1 ? 's' : ''}
                           </p>
                         </div>
                       </div>
@@ -378,7 +391,7 @@ const Home = () => {
                       className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDelete(collection.id, 'bible');
+                        handleDelete(metadata.id, 'bible');
                       }}
                     >
                       <Trash2 className="h-4 w-4" />

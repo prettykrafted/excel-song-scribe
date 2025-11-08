@@ -1,24 +1,57 @@
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { BibleCollection } from '@/types/bible';
+import { loadBibleById } from '@/utils/bibleUtils';
+import { useToast } from '@/hooks/use-toast';
 
 const BibleView = () => {
-  const { id } = useParams();
-  const location = useLocation();
   const navigate = useNavigate();
-  const collection = location.state?.collection as BibleCollection;
+  const { id } = useParams();
+  const { toast } = useToast();
+  const [collection, setCollection] = useState<BibleCollection | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  if (!collection) {
+  useEffect(() => {
+    const loadCollection = async () => {
+      if (!id) return;
+      
+      try {
+        const data = await loadBibleById(id);
+        if (data) {
+          setCollection(data);
+        } else {
+          toast({
+            title: 'Error',
+            description: 'Bible collection not found',
+            variant: 'destructive',
+          });
+          navigate('/');
+        }
+      } catch (error) {
+        console.error('Error loading Bible:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to load Bible collection',
+          variant: 'destructive',
+        });
+        navigate('/');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadCollection();
+  }, [id, navigate, toast]);
+
+  if (loading || !collection) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
-          <BookOpen className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-          <p className="text-muted-foreground">Bible collection not found</p>
-          <Button onClick={() => navigate('/')} className="mt-4">
-            Go Home
-          </Button>
+          <BookOpen className="h-16 w-16 text-primary mx-auto mb-4 animate-pulse" />
+          <p className="text-muted-foreground">Loading Bible...</p>
         </div>
       </div>
     );
